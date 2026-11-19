@@ -1,1 +1,302 @@
-<h1>WEB Construtora</h1>
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WEB Construtora - Sistema Inteligente</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#111;color:#eee;font-family:Arial,sans-serif}
+header{background:#050505;padding:22px;border-bottom:3px solid #d4af37}
+h1{color:#d4af37;margin:0}
+header p{color:#aaa}
+main{max-width:1100px;margin:auto;padding:16px}
+.card{background:#202020;border:1px solid #66552b;border-radius:12px;padding:16px;margin-bottom:15px}
+h2{color:#d4af37}
+nav{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px}
+button{background:#d4af37;color:#111;border:0;border-radius:7px;padding:12px;font-weight:bold;cursor:pointer}
+nav button{background:#303030;color:#d4af37}
+input,select{width:100%;padding:12px;margin:7px 0 14px;background:#111;color:white;border:1px solid #66552b;border-radius:7px}
+label{color:#ccc;font-size:14px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:10px}
+.number{font-size:28px;color:#d4af37;font-weight:bold}
+.hidden{display:none}
+.item{padding:12px;border-bottom:1px solid #444;overflow-wrap:anywhere}
+.small{font-size:12px;color:#aaa}
+</style>
+</head>
+<body>
+<header>
+<h1>WEB CONSTRUTORA</h1>
+<p>Sistema Inteligente de Gestão de Obras</p>
+</header>
+<main>
+<section id="login" class="card">
+<h2>Acesso ao sistema</h2>
+<label>Usuário</label>
+<input id="usuario" placeholder="Digite seu usuário">
+<label>Senha</label>
+<input id="senha" type="password" placeholder="Digite sua senha">
+<button onclick="entrar()">Entrar</button>
+<p class="small">Acesso demonstrativo: admin / web123</p>
+</section>
+
+<section id="sistema" class="hidden">
+<nav>
+<button onclick="pagina('inicio')">Painel</button>
+<button onclick="pagina('obras')">Obras</button>
+<button onclick="pagina('orcamentos')">Orçamentos</button>
+<button onclick="pagina('funcionarios')">Funcionários</button>
+<button onclick="pagina('materiais')">Materiais</button>
+<button onclick="pagina('relatorios')">Relatórios</button>
+<button onclick="sair()">Sair</button>
+</nav>
+
+<section id="inicio">
+<h2>Painel de gestão</h2>
+<div class="grid">
+<div class="card">Obras<div class="number" id="totalObras">0</div></div>
+<div class="card">Orçamentos<div class="number" id="totalOrc">0</div></div>
+<div class="card">Funcionários<div class="number" id="totalFunc">0</div></div>
+<div class="card">Materiais<div class="number" id="totalMat">0</div></div>
+</div>
+<div class="card">
+<h2>Bem-vindo à WEB Construtora</h2>
+<p>Controle suas obras, equipes, materiais e orçamentos em um só lugar.</p>
+</div>
+</section>
+
+<section id="obras" class="hidden">
+<div class="card">
+<h2>Cadastro de obras</h2>
+<input id="obraNome" placeholder="Nome da obra">
+<input id="obraLocal" placeholder="Cidade ou endereço">
+<select id="obraStatus">
+<option>Planejada</option>
+<option>Em andamento</option>
+<option>Concluída</option>
+</select>
+<button onclick="adicionarObra()">Cadastrar obra</button>
+</div>
+<div class="card"><h2>Obras cadastradas</h2><div id="listaObras"></div></div>
+</section>
+
+<section id="orcamentos" class="hidden">
+<div class="card">
+<h2>Novo orçamento</h2>
+<input id="servico" placeholder="Descrição do serviço">
+<input id="quantidade" type="number" min="0" step="0.01" placeholder="Quantidade">
+<select id="unidade">
+<option>m²</option>
+<option>m</option>
+<option>unidade</option>
+<option>diária</option>
+<option>serviço</option>
+</select>
+<input id="valorUnitario" type="number" min="0" step="0.01" placeholder="Valor unitário (R$)">
+<button onclick="adicionarOrcamento()">Calcular e salvar</button>
+<div id="resultado"></div>
+</div>
+<div class="card"><h2>Orçamentos cadastrados</h2><div id="listaOrc"></div></div>
+</section>
+
+<section id="funcionarios" class="hidden">
+<div class="card">
+<h2>Cadastro de funcionários</h2>
+<input id="funcNome" placeholder="Nome do funcionário">
+<input id="funcCargo" placeholder="Cargo ou função">
+<button onclick="adicionarFuncionario()">Cadastrar funcionário</button>
+</div>
+<div class="card"><h2>Equipe cadastrada</h2><div id="listaFunc"></div></div>
+</section>
+
+<section id="materiais" class="hidden">
+<div class="card">
+<h2>Controle de materiais</h2>
+<input id="matNome" placeholder="Nome do material">
+<input id="matQtd" type="number" min="0" step="0.01" placeholder="Quantidade">
+<input id="matUn" placeholder="Unidade: lata, saco, unidade...">
+<button onclick="adicionarMaterial()">Cadastrar material</button>
+</div>
+<div class="card"><h2>Estoque cadastrado</h2><div id="listaMat"></div></div>
+</section>
+
+<section id="relatorios" class="hidden">
+<div class="card">
+<h2>Relatórios gerais</h2>
+<div id="resumo"></div>
+<button onclick="exportar()">Baixar relatório CSV</button>
+</div>
+</section>
+</section>
+</main>
+
+<script>
+const dados={
+obras:JSON.parse(localStorage.getItem('web_obras')||'[]'),
+orc:JSON.parse(localStorage.getItem('web_orc')||'[]'),
+func:JSON.parse(localStorage.getItem('web_func')||'[]'),
+mat:JSON.parse(localStorage.getItem('web_mat')||'[]')
+};
+
+function entrar(){
+if(document.getElementById('usuario').value==='admin' &&
+document.getElementById('senha').value==='web123'){
+document.getElementById('login').classList.add('hidden');
+document.getElementById('sistema').classList.remove('hidden');
+atualizar();
+}else alert('Usuário ou senha incorretos.');
+}
+
+function sair(){
+document.getElementById('sistema').classList.add('hidden');
+document.getElementById('login').classList.remove('hidden');
+}
+
+function pagina(id){
+['inicio','obras','orcamentos','funcionarios','materiais','relatorios'].forEach(p=>{
+document.getElementById(p).classList.toggle('hidden',p!==id);
+});
+atualizar();
+}
+
+function valor(id){
+return document.getElementById(id).value.trim();
+}
+
+function limpar(ids){
+ids.forEach(id=>document.getElementById(id).value='');
+}
+
+function guardar(){
+Object.keys(dados).forEach(k=>{
+localStorage.setItem('web_'+k,JSON.stringify(dados[k]));
+});
+atualizar();
+}
+
+function adicionarObra(){
+let nome=valor('obraNome');
+if(!nome){alert('Informe o nome da obra.');return;}
+dados.obras.push({
+nome,
+local:valor('obraLocal'),
+status:valor('obraStatus')
+});
+limpar(['obraNome','obraLocal']);
+guardar();
+}
+
+function adicionarOrcamento(){
+let servico=valor('servico');
+let qtd=Number(valor('quantidade'));
+let unit=Number(valor('valorUnitario'));
+if(!servico||qtd<=0||unit<0||valor('valorUnitario')===''){
+alert('Preencha os dados corretamente.');return;
+}
+let total=qtd*unit;
+dados.orc.push({
+servico,qtd,
+unidade:valor('unidade'),
+unit,total
+});
+document.getElementById('resultado').textContent=
+'Total: '+total.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+limpar(['servico','quantidade','valorUnitario']);
+guardar();
+}
+
+function adicionarFuncionario(){
+let nome=valor('funcNome');
+if(!nome){alert('Informe o nome.');return;}
+dados.func.push({nome,cargo:valor('funcCargo')});
+limpar(['funcNome','funcCargo']);
+guardar();
+}
+
+function adicionarMaterial(){
+let nome=valor('matNome');
+let qtd=Number(valor('matQtd'));
+if(!nome||valor('matQtd')===''||qtd<0){
+alert('Preencha os dados corretamente.');return;
+}
+dados.mat.push({nome,qtd,un:valor('matUn')});
+limpar(['matNome','matQtd','matUn']);
+guardar();
+}
+
+function lista(id,items,formatar,chave){
+let area=document.getElementById(id);
+area.innerHTML='';
+if(!items.length){
+area.textContent='Nenhum registro cadastrado.';
+return;
+}
+items.forEach((item,i)=>{
+let div=document.createElement('div');
+div.className='item';
+let texto=document.createElement('span');
+texto.textContent=formatar(item);
+div.appendChild(texto);
+let botao=document.createElement('button');
+botao.textContent='Excluir';
+botao.style.margin='8px';
+botao.onclick=()=>remover(chave,i);
+div.appendChild(botao);
+area.appendChild(div);
+});
+}
+
+function remover(tipo,i){
+if(!confirm('Deseja excluir este registro?'))return;
+dados[tipo].splice(i,1);
+guardar();
+}
+
+function atualizar(){
+document.getElementById('totalObras').textContent=dados.obras.length;
+document.getElementById('totalOrc').textContent=dados.orc.length;
+document.getElementById('totalFunc').textContent=dados.func.length;
+document.getElementById('totalMat').textContent=dados.mat.length;
+
+lista('listaObras',dados.obras,
+x=>x.nome+' | '+x.local+' | '+x.status,'obras');
+
+lista('listaOrc',dados.orc,
+x=>x.servico+' | '+x.qtd+' '+x.unidade+' | '+x.total.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}),'orc');
+
+lista('listaFunc',dados.func,
+x=>x.nome+' | '+x.cargo,'func');
+
+lista('listaMat',dados.mat,
+x=>x.nome+' | '+x.qtd+' '+x.un,'mat');
+
+document.getElementById('resumo').textContent=
+'Obras: '+dados.obras.length+
+' | Orçamentos: '+dados.orc.length+
+' | Funcionários: '+dados.func.length+
+' | Materiais: '+dados.mat.length;
+}
+
+function exportar(){
+let linhas=[['Categoria','Descrição','Detalhes']];
+dados.obras.forEach(x=>linhas.push(['Obra',x.nome,x.local+' - '+x.status]));
+dados.orc.forEach(x=>linhas.push(['Orçamento',x.servico,x.total]));
+dados.func.forEach(x=>linhas.push(['Funcionário',x.nome,x.cargo]));
+dados.mat.forEach(x=>linhas.push(['Material',x.nome,x.qtd+' '+x.un]));
+let csv=linhas.map(l=>l.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(';')).join('\n');
+let blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});
+let url=URL.createObjectURL(blob);
+let a=document.createElement('a');
+a.href=url;
+a.download='relatorio-web-construtora.csv';
+a.click();
+URL.revokeObjectURL(url);
+}
+
+atualizar();
+</script>
+</body>
+</html>
+
