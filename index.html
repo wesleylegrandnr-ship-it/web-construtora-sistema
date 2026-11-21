@@ -48,6 +48,7 @@ label{color:#ccc;font-size:14px}
 <button onclick="pagina('obras')">Obras</button>
 <button onclick="pagina('orcamentos')">Orçamentos</button>
 <button onclick="pagina('funcionarios')">Funcionários</button>
+<button onclick="pagina('ponto')">Ponto</button>
 <button onclick="pagina('materiais')">Materiais</button>
 <button onclick="pagina('relatorios')">Relatórios</button>
 <button onclick="sair()">Sair</button>
@@ -111,6 +112,17 @@ label{color:#ccc;font-size:14px}
 <div class="card"><h2>Equipe cadastrada</h2><div id="listaFunc"></div></div>
 </section>
 
+<section id="ponto" class="hidden">
+<div class="card">
+<h2>Registro de ponto — demonstração local</h2>
+<p class="small">Os registros ficam somente neste navegador. Não é um controle de ponto oficial nem sincroniza com outros celulares.</p>
+<label>Funcionário</label><select id="pontoFuncionario"></select>
+<label>Tipo de registro</label><select id="pontoTipo"><option>Entrada</option><option>Saída para intervalo</option><option>Retorno do intervalo</option><option>Saída</option></select>
+<button onclick="registrarPonto()">Registrar horário</button>
+</div>
+<div class="card"><h2>Registros de ponto</h2><div id="listaPonto"></div></div>
+</section>
+
 <section id="materiais" class="hidden">
 <div class="card">
 <h2>Controle de materiais</h2>
@@ -137,7 +149,8 @@ const dados={
 obras:JSON.parse(localStorage.getItem('web_obras')||'[]'),
 orc:JSON.parse(localStorage.getItem('web_orc')||'[]'),
 func:JSON.parse(localStorage.getItem('web_func')||'[]'),
-mat:JSON.parse(localStorage.getItem('web_mat')||'[]')
+mat:JSON.parse(localStorage.getItem('web_mat')||'[]'),
+ponto:JSON.parse(localStorage.getItem('web_ponto')||'[]')
 };
 
 function entrar(){
@@ -155,7 +168,7 @@ document.getElementById('login').classList.remove('hidden');
 }
 
 function pagina(id){
-['inicio','obras','orcamentos','funcionarios','materiais','relatorios'].forEach(p=>{
+['inicio','obras','orcamentos','funcionarios','ponto','materiais','relatorios'].forEach(p=>{
 document.getElementById(p).classList.toggle('hidden',p!==id);
 });
 atualizar();
@@ -215,6 +228,33 @@ limpar(['funcNome','funcCargo']);
 guardar();
 }
 
+function registrarPonto(){
+const funcionario=valor('pontoFuncionario');
+if(!funcionario){alert('Cadastre e selecione um funcionário.');return;}
+const tipo=valor('pontoTipo');
+const data=new Date().toISOString();
+dados.ponto.push({funcionario,tipo,data});
+guardar();
+alert('Horário registrado neste navegador.');
+}
+
+function atualizarPonto(){
+const select=document.getElementById('pontoFuncionario');
+const anterior=select.value;
+select.replaceChildren();
+const vazio=document.createElement('option');vazio.value='';vazio.textContent='Selecione um funcionário';select.appendChild(vazio);
+dados.func.forEach((f,i)=>{const o=document.createElement('option');o.value=String(i);o.textContent=f.nome;select.appendChild(o);});
+if([...select.options].some(o=>o.value===anterior))select.value=anterior;
+const area=document.getElementById('listaPonto');area.replaceChildren();
+if(!dados.ponto.length){area.textContent='Nenhum ponto registrado.';return;}
+dados.ponto.slice().reverse().forEach(p=>{
+const linha=document.createElement('div');linha.className='item';
+const f=dados.func[Number(p.funcionario)];
+linha.textContent=(f?f.nome:'Funcionário removido')+' | '+p.tipo+' | '+new Date(p.data).toLocaleString('pt-BR');
+area.appendChild(linha);
+});
+}
+
 function adicionarMaterial(){
 let nome=valor('matNome');
 let qtd=Number(valor('matQtd'));
@@ -255,6 +295,7 @@ guardar();
 }
 
 function atualizar(){
+atualizarPonto();
 document.getElementById('totalObras').textContent=dados.obras.length;
 document.getElementById('totalOrc').textContent=dados.orc.length;
 document.getElementById('totalFunc').textContent=dados.func.length;
@@ -285,6 +326,7 @@ dados.obras.forEach(x=>linhas.push(['Obra',x.nome,x.local+' - '+x.status]));
 dados.orc.forEach(x=>linhas.push(['Orçamento',x.servico,x.total]));
 dados.func.forEach(x=>linhas.push(['Funcionário',x.nome,x.cargo]));
 dados.mat.forEach(x=>linhas.push(['Material',x.nome,x.qtd+' '+x.un]));
+dados.ponto.forEach(x=>linhas.push(['Ponto',dados.func[Number(x.funcionario)]?.nome||'Funcionário removido',x.tipo+' - '+new Date(x.data).toLocaleString('pt-BR')]));
 let csv=linhas.map(l=>l.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(';')).join('\n');
 let blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});
 let url=URL.createObjectURL(blob);
