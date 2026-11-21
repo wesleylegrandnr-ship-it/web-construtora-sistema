@@ -24,6 +24,13 @@ label{color:#ccc;font-size:14px}
 .hidden{display:none}
 .item{padding:12px;border-bottom:1px solid #444;overflow-wrap:anywhere}
 .small{font-size:12px;color:#aaa}
+button,input,select{font-size:1rem;min-height:44px}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid white;outline-offset:2px}
+nav button[aria-current="page"]{background:#d4af37;color:#111}
+form .grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr))}
+.item img{display:block;width:min(100%,260px);height:auto;margin:.5rem 0;border-radius:8px}
+output{display:block;margin-top:1rem}
+@media(max-width:500px){h1{font-size:1.6rem}nav button{flex:1 1 42%}.card{padding:12px}}
 </style>
 </head>
 <body>
@@ -50,6 +57,11 @@ label{color:#ccc;font-size:14px}
 <button onclick="pagina('funcionarios')">Funcionários</button>
 <button onclick="pagina('materiais')">Materiais</button>
 <button onclick="pagina('relatorios')">Relatórios</button>
+<button onclick="pagina('fornecedores')">Fornecedores</button>
+<button onclick="pagina('ponto')">Ponto</button>
+<button onclick="pagina('diario')">Medições</button>
+<button onclick="pagina('financeiro')">Financeiro</button>
+<button onclick="pagina('alertas')">Alertas</button>
 <button onclick="sair()">Sair</button>
 </nav>
 
@@ -85,6 +97,8 @@ label{color:#ccc;font-size:14px}
 <section id="orcamentos" class="hidden">
 <div class="card">
 <h2>Novo orçamento</h2>
+<label for="orcObra">Obra vinculada</label>
+<select id="orcObra" data-origem="obras"></select>
 <input id="servico" placeholder="Descrição do serviço">
 <input id="quantidade" type="number" min="0" step="0.01" placeholder="Quantidade">
 <select id="unidade">
@@ -127,8 +141,18 @@ label{color:#ccc;font-size:14px}
 <h2>Relatórios gerais</h2>
 <div id="resumo"></div>
 <button onclick="exportar()">Baixar relatório CSV</button>
+<button id="backup">Exportar backup</button>
+<label for="restaurar">Importar backup e juntar registros</label>
+<input id="restaurar" type="file" accept=".json,application/json">
+<output id="backupMsg" aria-live="polite"></output>
 </div>
+<div id="fotosChecklist"></div>
 </section>
+<section id="fornecedores" class="hidden"></section>
+<section id="ponto" class="hidden"></section>
+<section id="diario" class="hidden"></section>
+<section id="financeiro" class="hidden"></section>
+<section id="alertas" class="hidden"></section>
 </section>
 </main>
 
@@ -143,6 +167,7 @@ mat:JSON.parse(localStorage.getItem('web_mat')||'[]')
 function entrar(){
 if(document.getElementById('usuario').value==='admin' &&
 document.getElementById('senha').value==='web123'){
+document.getElementById('senha').value='';
 document.getElementById('login').classList.add('hidden');
 document.getElementById('sistema').classList.remove('hidden');
 atualizar();
@@ -155,8 +180,11 @@ document.getElementById('login').classList.remove('hidden');
 }
 
 function pagina(id){
-['inicio','obras','orcamentos','funcionarios','materiais','relatorios'].forEach(p=>{
-document.getElementById(p).classList.toggle('hidden',p!==id);
+document.querySelectorAll('#sistema > section').forEach(secao=>{
+  secao.classList.toggle('hidden',secao.id!==id);
+});
+document.querySelectorAll('#sistema nav button').forEach(botao=>{
+  botao.setAttribute('aria-current',botao.getAttribute('onclick')==="pagina('"+id+"')"?'page':'false');
 });
 atualizar();
 }
@@ -195,9 +223,9 @@ let unit=Number(valor('valorUnitario'));
 if(!servico||qtd<=0||unit<0||valor('valorUnitario')===''){
 alert('Preencha os dados corretamente.');return;
 }
-let total=qtd*unit;
+let total=Math.round(qtd*unit*100)/100;
 dados.orc.push({
-servico,qtd,
+servico,qtd,obra:valor('orcObra'),
 unidade:valor('unidade'),
 unit,total
 });
@@ -250,6 +278,9 @@ area.appendChild(div);
 
 function remover(tipo,i){
 if(!confirm('Deseja excluir este registro?'))return;
+if (typeof registroVinculado === 'function' && registroVinculado(tipo,dados[tipo][i])) {
+  alert('Este cadastro possui registros vinculados.'); return;
+}
 dados[tipo].splice(i,1);
 guardar();
 }
@@ -282,10 +313,11 @@ document.getElementById('resumo').textContent=
 function exportar(){
 let linhas=[['Categoria','Descrição','Detalhes']];
 dados.obras.forEach(x=>linhas.push(['Obra',x.nome,x.local+' - '+x.status]));
-dados.orc.forEach(x=>linhas.push(['Orçamento',x.servico,x.total]));
+dados.orc.forEach(x=>linhas.push(['Orçamento',x.servico,(x.obra?obraNome(x)+' | ':'')+moeda(x.total)]));
 dados.func.forEach(x=>linhas.push(['Funcionário',x.nome,x.cargo]));
 dados.mat.forEach(x=>linhas.push(['Material',x.nome,x.qtd+' '+x.un]));
-let csv=linhas.map(l=>l.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(';')).join('\n');
+linhas.push(...linhasOperacionais());
+let csv=linhas.map(l=>l.map(v=>'"'+String(v).replace(/^[\s]*[=+@-]/,m=>"'"+m).replace(/"/g,'""')+'"').join(';')).join('\n');
 let blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});
 let url=URL.createObjectURL(blob);
 let a=document.createElement('a');
@@ -295,7 +327,382 @@ a.click();
 URL.revokeObjectURL(url);
 }
 
-atualizar();
+</script>
+<script>
+const el = id => document.getElementById(id);
+const chaveOperacional = 'web_operacional_v1';
+const colecoes = ['fornecedores','cotacoes','pontos','medicoes','financeiro','fotos','checklists','metas','consumos'];
+const operacao = Object.fromEntries(colecoes.map(chave => [chave, []]));
+const agora = () => new Date().toISOString();
+const dia = () => new Intl.DateTimeFormat('sv-SE',{timeZone:'America/Sao_Paulo'}).format(new Date());
+const moeda = valor => Number(valor).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+const normalizar = valor => valor.trim().toLocaleLowerCase('pt-BR');
+const dataHora = valor => new Date(valor).toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo'});
+const identificador = () => globalThis.crypto?.randomUUID?.() ?? Date.now()+'-'+Math.random().toString(36).slice(2);
+Object.assign(operacao, JSON.parse(localStorage.getItem(chaveOperacional) || '{}'));
+
+function garantirIds() {
+  for (const chave of ['obras','func','mat']) {
+    let mudou = false;
+    for (const registro of dados[chave]) {
+      if (!registro.id) {
+        registro.id = identificador();
+        mudou = true;
+      }
+    }
+    if (mudou) localStorage.setItem('web_'+chave,JSON.stringify(dados[chave]));
+  }
+}
+
+function salvarOperacao(chave, registros) {
+  localStorage.setItem(chaveOperacional,JSON.stringify({...operacao,[chave]:registros}));
+  operacao[chave] = registros;
+  atualizar();
+}
+
+function incluir(chave, registro) {
+  salvarOperacao(chave,[...operacao[chave],{...registro,id:identificador()}]);
+}
+
+function registroVinculado(tipo, registro) {
+  const campo = {obras:'obra',func:'funcionario',mat:'material'}[tipo];
+  return campo && (colecoes.some(chave=>operacao[chave].some(item=>item[campo]===registro.id)) || (tipo==='obras'&&dados.orc.some(item=>item.obra===registro.id)));
+}
+
+function nome(chave,id) {
+  return (dados[chave] || operacao[chave]).find(item=>item.id===id)?.nome || 'Cadastro indisponível';
+}
+
+function campo(chave, rotulo, opcoes={}) {
+  return {chave,rotulo,...opcoes};
+}
+
+function formulario(destino, titulo, campos, botao, enviar) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  const heading = document.createElement('h2');
+  heading.textContent = titulo;
+  const form = document.createElement('form');
+  const grid = document.createElement('div');
+  grid.className = 'grid';
+  const mensagem = document.createElement('output');
+  mensagem.setAttribute('aria-live','polite');
+  for (const config of campos) {
+    const {chave,rotulo,tipo='text',escolhas,origem,min} = config;
+    const label = document.createElement('label');
+    label.append(rotulo);
+    const input = document.createElement(escolhas || origem ? 'select' : 'input');
+    input.name = chave;
+    input.required = !config.opcional;
+    if (origem) input.dataset.origem = origem;
+    else if (escolhas) escolhas.forEach(opcao=>input.add(new Option(opcao,opcao)));
+    else {
+      input.type = tipo;
+      if (tipo === 'number') {
+        input.min = min ?? 0;
+        input.step = chave==='valor'||chave==='preco' ? '0.01' : 'any';
+      }
+      if (tipo === 'date' && config.hoje) input.defaultValue = dia();
+      if (tipo === 'file') {
+        input.accept = 'image/*';
+        input.setAttribute('capture','environment');
+      }
+    }
+    label.append(input);
+    grid.append(label);
+  }
+  const acao = document.createElement('button');
+  acao.textContent = botao;
+  form.append(grid,acao,mensagem);
+  form.addEventListener('submit',async event=>{
+    event.preventDefault();
+    acao.disabled = true;
+    try {
+      const valores = Object.fromEntries(new FormData(form));
+      for (const config of campos) {
+        if (typeof valores[config.chave] === 'string') {
+          valores[config.chave] = valores[config.chave].trim();
+          if (!config.opcional && !valores[config.chave]) throw new Error('Preencha '+config.rotulo+'.');
+          if (config.tipo === 'number') valores[config.chave] = Number(valores[config.chave]);
+        }
+      }
+      mensagem.textContent = await enviar(valores) || 'Registro salvo.';
+    } catch (erro) {
+      mensagem.textContent = erro.name==='QuotaExceededError' ? 'Espaço do navegador insuficiente. Exporte um backup dos registros.' : erro.message;
+    } finally {
+      acao.disabled = false;
+    }
+  });
+  card.append(heading,form);
+  el(destino).append(card);
+}
+
+function painel(destino, id, titulo) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  const heading = document.createElement('h2');
+  heading.textContent = titulo;
+  const corpo = document.createElement('div');
+  corpo.id = id;
+  card.append(heading,corpo);
+  el(destino).append(card);
+}
+
+function mostrar(id, itens, vazio='Nenhum registro cadastrado.') {
+  el(id).replaceChildren();
+  if (!itens.length) el(id).textContent = vazio;
+  for (const item of itens) {
+    const linha = document.createElement('div');
+    linha.className = 'item';
+    linha.textContent = typeof item === 'string' ? item : item.texto;
+    for (const foto of item.fotos || []) {
+      if (!/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(foto)) continue;
+      const imagem = document.createElement('img');
+      imagem.src = foto;
+      imagem.loading = 'lazy';
+      imagem.alt = 'Foto do registro';
+      linha.append(imagem);
+    }
+    el(id).append(linha);
+  }
+}
+
+async function reduzirFoto(arquivo) {
+  if (!arquivo?.size) throw new Error('Adicione uma foto.');
+  const url = URL.createObjectURL(arquivo);
+  try {
+    const imagem = new Image();
+    imagem.src = url;
+    await imagem.decode();
+    const escala = Math.min(1,960/Math.max(imagem.width,imagem.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1,Math.round(imagem.width*escala));
+    canvas.height = Math.max(1,Math.round(imagem.height*escala));
+    canvas.getContext('2d').drawImage(imagem,0,0,canvas.width,canvas.height);
+    return canvas.toDataURL('image/jpeg',0.68);
+  } catch {
+    throw new Error('Não foi possível ler a foto. Tente uma imagem JPEG ou PNG.');
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+const obra = campo('obra','Obra',{origem:'obras'});
+const funcionario = campo('funcionario','Funcionário',{origem:'func'});
+const material = campo('material','Material em estoque',{origem:'mat'});
+const servico = campo('servico','Serviço');
+const unidade = campo('unidade','Unidade',{escolhas:['m²','m','m³','unidade','diária']});
+const data = campo('data','Data',{tipo:'date',hoje:true});
+const foto = campo('foto','Foto',{tipo:'file'});
+const numero = (chave,rotulo,min=0) => campo(chave,rotulo,{tipo:'number',min});
+
+formulario('materiais','Cálculo de materiais por área',[
+  numero('area','Área (m²)',0.001),numero('consumo','Consumo por m²',0.001),
+  numero('perda','Margem de perda (%)'),campo('unidade','Unidade do material')
+],'Calcular',x=>{
+  const total = x.area*x.consumo*(1+x.perda/100);
+  return total.toLocaleString('pt-BR',{maximumFractionDigits:3})+' '+x.unidade+' necessários.';
+});
+
+formulario('obras','Atualizar situação da obra',[obra,campo('status','Situação',{escolhas:['Planejada','Em andamento','Concluída']})],'Salvar situação',x=>{
+  dados.obras.find(item=>item.id===x.obra).status = x.status;
+  guardar();
+});
+
+formulario('funcionarios','Atualizar funcionário',[funcionario,campo('cargo','Cargo'),campo('status','Situação',{escolhas:['Ativo','Inativo']})],'Salvar funcionário',x=>{
+  const cadastro = dados.func.find(item=>item.id===x.funcionario);
+  Object.assign(cadastro,{cargo:x.cargo,status:x.status});
+  guardar();
+});
+
+formulario('fornecedores','Cadastrar fornecedor de São Paulo',[
+  campo('nome','Fornecedor'),campo('cidade','Cidade (SP)'),campo('contato','Contato',{opcional:true})
+],'Cadastrar',x=>{incluir('fornecedores',x);});
+painel('fornecedores','listaFornecedores','Fornecedores cadastrados');
+formulario('fornecedores','Registrar cotação',[
+  campo('fornecedor','Fornecedor',{origem:'fornecedores'}),campo('produto','Material ou produto'),
+  unidade,numero('preco','Preço unitário (R$)'),data
+],'Salvar cotação',x=>{incluir('cotacoes',x);});
+painel('fornecedores','listaCotacoes','Cotação mais recente por fornecedor, em ordem de preço');
+
+formulario('ponto','Registrar entrada ou saída',[
+  obra,funcionario,campo('tipo','Registro',{escolhas:['Entrada','Saída']}),foto
+],'Bater ponto',async x=>{
+  const imagem = await reduzirFoto(x.foto);
+  const aberto = operacao.pontos.find(item=>item.funcionario===x.funcionario&&!item.saida);
+  if (x.tipo==='Entrada') {
+    if (aberto) throw new Error('O funcionário já tem uma entrada em aberto.');
+    if (dados.func.find(item=>item.id===x.funcionario)?.status==='Inativo') throw new Error('Funcionário inativo.');
+    incluir('pontos',{obra:x.obra,funcionario:x.funcionario,entrada:agora(),fotoEntrada:imagem});
+  } else {
+    if (!aberto || aberto.obra!==x.obra) throw new Error('Selecione a obra da entrada em aberto.');
+    salvarOperacao('pontos',operacao.pontos.map(item=>item.id===aberto.id ? {...item,saida:agora(),fotoSaida:imagem} : item));
+  }
+});
+painel('ponto','listaPontos','Histórico de ponto');
+
+formulario('diario','Registrar medição diária',[obra,data,servico,unidade,numero('qtd','Quantidade executada',0.001)],'Salvar medição',x=>{incluir('medicoes',x);});
+painel('diario','listaMedicoes','Medições registradas');
+formulario('diario','Planejar serviço',[obra,servico,unidade,numero('qtd','Quantidade prevista',0.001),campo('prazo','Prazo',{tipo:'date'})],'Salvar planejamento',x=>{
+  const restantes = operacao.metas.filter(item=>item.obra!==x.obra||normalizar(item.servico)!==normalizar(x.servico)||item.unidade!==x.unidade);
+  salvarOperacao('metas',[...restantes,{...x,id:identificador()}]);
+});
+painel('diario','listaMetas','Serviços planejados');
+
+formulario('materiais','Registrar consumo por obra',[
+  obra,material,data,numero('previsto','Consumo previsto'),numero('usado','Consumo real')
+],'Salvar consumo',x=>{
+  const estoque = dados.mat.find(item=>item.id===x.material);
+  if (!estoque || x.usado>saldoMaterial(estoque)) throw new Error('O consumo supera o saldo disponível.');
+  incluir('consumos',x);
+});
+painel('materiais','listaConsumos','Consumo por obra');
+
+formulario('financeiro','Registrar despesa',[obra,data,campo('descricao','Descrição'),numero('valor','Valor da despesa (R$)',0.01)],'Salvar despesa',x=>{incluir('financeiro',{...x,pagamentos:[]});});
+formulario('financeiro','Registrar pagamento',[
+  campo('despesa','Despesa em aberto',{origem:'financeiro'}),data,numero('valor','Valor pago (R$)',0.01)
+],'Salvar pagamento',x=>{
+  const despesa = operacao.financeiro.find(item=>item.id===x.despesa);
+  if (!despesa || centavos(x.valor)>saldoDespesa(despesa)) throw new Error('Informe um valor dentro do saldo da despesa.');
+  salvarOperacao('financeiro',operacao.financeiro.map(item=>item.id===x.despesa ? {...item,pagamentos:[...item.pagamentos,{data:x.data,valor:x.valor}]} : item));
+});
+painel('financeiro','listaFinanceiro','Despesas e pagamentos');
+
+formulario('fotosChecklist','Adicionar ao relatório fotográfico',[obra,data,campo('descricao','Descrição'),foto],'Salvar foto',async x=>{incluir('fotos',{...x,foto:await reduzirFoto(x.foto)});});
+painel('fotosChecklist','listaFotos','Relatório fotográfico');
+formulario('fotosChecklist','Registrar item de checklist',[obra,data,campo('descricao','Item'),campo('status','Situação',{escolhas:['Pendente','Conforme','Não conforme']})],'Salvar item',x=>{
+  const anteriores = operacao.checklists.filter(item=>item.obra!==x.obra||item.data!==x.data||normalizar(item.descricao)!==normalizar(x.descricao));
+  salvarOperacao('checklists',[...anteriores,{...x,id:identificador()}]);
+});
+painel('fotosChecklist','listaChecklists','Checklists por obra');
+painel('alertas','listaAlertas','Alertas por regras');
+painel('orcamentos','totalPorObra','Total orçado por obra');
+
+const centavos = valor => Math.round(valor*100);
+const saldoDespesa = item => centavos(item.valor)-item.pagamentos.reduce((total,pagamento)=>total+centavos(pagamento.valor),0);
+const saldoMaterial = item => item.qtd-operacao.consumos.filter(x=>x.material===item.id).reduce((total,x)=>total+x.usado,0);
+const obraNome = item => nome('obras',item.obra);
+const dataBR = valor => valor.split('-').reverse().join('/');
+
+function cotacoesAtuais() {
+  const atuais = new Map();
+  for (const x of operacao.cotacoes) {
+    const chave = JSON.stringify([normalizar(x.produto),x.unidade,x.fornecedor]);
+    if (!atuais.has(chave)||atuais.get(chave).data<=x.data) atuais.set(chave,x);
+  }
+  return [...atuais.values()].sort((a,b)=>normalizar(a.produto).localeCompare(normalizar(b.produto),'pt-BR')||a.unidade.localeCompare(b.unidade)||a.preco-b.preco);
+}
+
+function alertas() {
+  const avisos = [];
+  for (const meta of operacao.metas) {
+    const executado = operacao.medicoes.filter(x=>x.obra===meta.obra&&normalizar(x.servico)===normalizar(meta.servico)&&x.unidade===meta.unidade&&x.data<=dia()).reduce((soma,x)=>soma+x.qtd,0);
+    if (meta.prazo<dia() && executado<meta.qtd) avisos.push(obraNome(meta)+' · Atraso em '+meta.servico+' · '+executado+' de '+meta.qtd+' '+meta.unidade);
+  }
+  for (const x of operacao.consumos) {
+    if (x.usado>x.previsto) avisos.push(obraNome(x)+' · Consumo acima do previsto · '+nome('mat',x.material)+' · '+x.usado+' de '+x.previsto+' previstos');
+  }
+  for (const item of dados.mat) {
+    const falta = operacao.consumos.filter(x=>x.material===item.id&&x.data>=dia()).reduce((total,x)=>total+Math.max(x.previsto-x.usado,0),0)-saldoMaterial(item);
+    if (falta>0 || saldoMaterial(item)<=0) avisos.push('Reposição · '+item.nome+(falta>0?' · faltam '+falta.toLocaleString('pt-BR')+' '+item.un:' · estoque esgotado'));
+  }
+  return avisos;
+}
+
+const atualizarCadastros = atualizar;
+atualizar = function () {
+  garantirIds();
+  atualizarCadastros();
+  lista('listaFunc',dados.func,x=>x.nome+' | '+x.cargo+' | '+(x.status||'Ativo'),'func');
+  lista('listaMat',dados.mat,x=>x.nome+' | saldo '+saldoMaterial(x).toLocaleString('pt-BR')+' '+x.un,'mat');
+  for (const select of document.querySelectorAll('select[data-origem]')) {
+    const chave = select.dataset.origem;
+    const selecionado = select.value;
+    const itens = dados[chave] || operacao[chave];
+    select.replaceChildren(new Option('Selecione',''));
+    for (const x of itens) {
+      if (chave==='financeiro'&&saldoDespesa(x)<=0) continue;
+      const texto = chave==='financeiro' ? obraNome(x)+' · '+x.descricao+' · '+moeda(saldoDespesa(x)/100) : x.nome;
+      select.add(new Option(texto,x.id));
+    }
+    if ([...select.options].some(x=>x.value===selecionado)) select.value = selecionado;
+  }
+  mostrar('totalPorObra',dados.obras.flatMap(obra=>{
+    const itens = dados.orc.filter(item=>item.obra===obra.id);
+    return itens.length ? [obra.nome+' · '+moeda(itens.reduce((soma,item)=>soma+item.total,0))] : [];
+  }));
+  mostrar('listaFornecedores',operacao.fornecedores.map(x=>[x.nome,x.cidade+' (SP)',x.contato].filter(Boolean).join(' · ')));
+  mostrar('listaCotacoes',cotacoesAtuais().map(x=>x.produto+' · '+moeda(x.preco)+' / '+x.unidade+' · '+nome('fornecedores',x.fornecedor)+' · '+dataBR(x.data)));
+  mostrar('listaPontos',[...operacao.pontos].reverse().map(x=>({texto:obraNome(x)+' · '+nome('func',x.funcionario)+' · Entrada '+dataHora(x.entrada)+' · '+(x.saida?'Saída '+dataHora(x.saida):'Em aberto'),fotos:[x.fotoEntrada,x.fotoSaida]})));
+  mostrar('listaMedicoes',[...operacao.medicoes].reverse().map(x=>obraNome(x)+' · '+dataBR(x.data)+' · '+x.servico+' · '+x.qtd+' '+x.unidade));
+  mostrar('listaMetas',operacao.metas.map(x=>obraNome(x)+' · '+x.servico+' · '+x.qtd+' '+x.unidade+' até '+dataBR(x.prazo)));
+  mostrar('listaConsumos',[...operacao.consumos].reverse().map(x=>obraNome(x)+' · '+dataBR(x.data)+' · '+nome('mat',x.material)+' · '+x.usado+' usados / '+x.previsto+' previstos'));
+  mostrar('listaFinanceiro',operacao.financeiro.map(x=>obraNome(x)+' · '+x.descricao+' · '+dataBR(x.data)+' · '+moeda(x.valor)+' · Saldo '+moeda(saldoDespesa(x)/100)+(x.pagamentos.length?' · Pagamentos: '+x.pagamentos.map(p=>dataBR(p.data)+' '+moeda(p.valor)).join(', '):'')));
+  mostrar('listaFotos',[...operacao.fotos].reverse().map(x=>({texto:obraNome(x)+' · '+dataBR(x.data)+' · '+x.descricao,fotos:[x.foto]})));
+  mostrar('listaChecklists',operacao.checklists.map(x=>obraNome(x)+' · '+dataBR(x.data)+' · '+x.descricao+' · '+x.status));
+  mostrar('listaAlertas',alertas(),'Nenhum alerta com os dados informados.');
+};
+
+function linhasOperacionais() {
+  return [
+    ...operacao.cotacoes.map(x=>['Cotação',nome('fornecedores',x.fornecedor),[x.data,x.produto,moeda(x.preco)+' / '+x.unidade].join(' | ')]),
+    ...operacao.consumos.map(x=>['Consumo',obraNome(x),[x.data,nome('mat',x.material),x.usado+' usados de '+x.previsto+' previstos'].join(' | ')]),
+    ...operacao.medicoes.map(x=>['Medição',obraNome(x),[x.data,x.servico,x.qtd,x.unidade].join(' | ')]),
+    ...operacao.financeiro.flatMap(x=>[['Despesa',obraNome(x),x.descricao+' | '+x.data+' | '+moeda(x.valor)],...x.pagamentos.map(p=>['Pagamento',obraNome(x),x.descricao+' | '+p.data+' | '+moeda(p.valor)])]),
+    ...operacao.pontos.map(x=>['Ponto',obraNome(x),nome('func',x.funcionario)+' | '+dataHora(x.entrada)+' | '+(x.saida?dataHora(x.saida):'Em aberto')]),
+    ...operacao.fotos.map(x=>['Registro fotográfico',obraNome(x),x.data+' | '+x.descricao]),
+    ...operacao.checklists.map(x=>['Checklist',obraNome(x),x.data+' | '+x.descricao+' | '+x.status])
+  ];
+}
+
+el('backup').onclick = () => {
+  const url = URL.createObjectURL(new Blob([JSON.stringify({versao:1,dados,operacao})],{type:'application/json'}));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'web-construtora-'+dia()+'.json';
+  link.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+};
+
+el('restaurar').onchange = async event => {
+  const arquivo = event.target.files[0];
+  if (!arquivo) return;
+  try {
+    const backup = JSON.parse(await arquivo.text());
+    if (backup?.versao!==1) throw new Error('Selecione um backup exportado pelo sistema.');
+    const unir = (atual,entrada) => {
+      if (!Array.isArray(entrada)||entrada.some(x=>!x||typeof x!=='object'||Array.isArray(x))) throw new Error('Backup inválido.');
+      const registros = new Map(atual.map(x=>[x.id||JSON.stringify(x),x]));
+      entrada.forEach(x=>{
+        const chave = x.id||JSON.stringify(x);
+        if (!registros.has(chave)) registros.set(chave,x);
+      });
+      return [...registros.values()];
+    };
+    const cadastros = Object.fromEntries(Object.keys(dados).map(k=>[k,unir(dados[k],backup.dados?.[k])]));
+    const novos = Object.fromEntries(colecoes.map(k=>[k,unir(operacao[k],backup.operacao?.[k])]));
+    const chaves = Object.entries(Object.fromEntries([...Object.entries(cadastros).map(([k,v])=>['web_'+k,v]),[chaveOperacional,novos]]));
+    const originais = chaves.map(([k])=>[k,localStorage.getItem(k)]);
+    try {
+      chaves.forEach(([k,v])=>localStorage.setItem(k,JSON.stringify(v)));
+    } catch (erro) {
+      originais.forEach(([k])=>localStorage.removeItem(k));
+      originais.forEach(([k,v])=>{if(v!==null) localStorage.setItem(k,v);});
+      throw erro;
+    }
+    Object.assign(dados,cadastros);
+    Object.assign(operacao,novos);
+    atualizar();
+    el('backupMsg').textContent = 'Importação concluída. Registros existentes foram preservados.';
+  } catch (erro) {
+    el('backupMsg').textContent = erro.name==='QuotaExceededError'?'Espaço insuficiente para importar o backup.':erro.message;
+  } finally {
+    event.target.value = '';
+  }
+};
+
+pagina('inicio');
+
 </script>
 </body>
 </html>
