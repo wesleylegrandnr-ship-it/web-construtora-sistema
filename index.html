@@ -36,12 +36,12 @@ label{color:#ccc;font-size:14px}
 <main>
 <section id="login" class="card">
 <h2>Acesso ao sistema</h2>
-<label>Usuário</label>
-<input id="usuario" placeholder="Digite seu usuário">
+<label>E-mail</label>
+<input id="usuario" type="email" autocomplete="username" placeholder="Seu e-mail cadastrado no Firebase">
 <label>Senha</label>
 <input id="senha" type="password" placeholder="Digite sua senha">
 <button onclick="entrar()">Entrar</button>
-<p class="small">Acesso demonstrativo: admin / web123</p>
+<p class="small" id="loginStatus">Acesso restrito ao administrador cadastrado.</p>
 </section>
 
 <section id="sistema" class="hidden">
@@ -117,10 +117,10 @@ label{color:#ccc;font-size:14px}
 <section id="ponto" class="hidden">
 <div class="card">
 <h2>Registro de ponto — demonstração local</h2>
-<p class="small">Os registros ficam somente neste navegador. Não é um controle de ponto oficial nem sincroniza com outros celulares.</p>
+<p class="small">Os registros são sincronizados pelo Firebase. Não é um controle de ponto oficial.</p>
 <label>Funcionário</label><select id="pontoFuncionario"></select>
 <label>Tipo de registro</label><select id="pontoTipo"><option>Entrada</option><option>Saída para intervalo</option><option>Retorno do intervalo</option><option>Saída</option></select>
-<label>Obra</label><select id="pontoObra"></select><label>Serviço executado</label><input id="pontoServico" placeholder="Descreva o serviço"><label>Foto opcional</label><input id="pontoFoto" type="file" accept="image/*" capture="environment"><label><input id="pontoLocalizar" type="checkbox" style="width:auto"> Anexar localização com minha autorização</label><button onclick="registrarPonto()">Registrar horário</button><p class="small">Foto e localização são opcionais e ficam neste dispositivo. A localização depende da permissão do navegador e de HTTPS.</p>
+<label>Obra</label><select id="pontoObra"></select><label>Serviço executado</label><input id="pontoServico" placeholder="Descreva o serviço"><label>Foto opcional</label><input id="pontoFoto" type="file" accept="image/*" capture="environment"><label><input id="pontoLocalizar" type="checkbox" style="width:auto"> Anexar localização com minha autorização</label><button onclick="registrarPonto()">Registrar horário</button><p class="small">Foto e localização são opcionais e serão armazenadas no banco de dados. A localização depende da permissão do navegador e de HTTPS.</p>
 </div>
 <div class="card"><h2>Registros de ponto</h2><div id="listaPonto"></div></div>
 </section>
@@ -147,27 +147,46 @@ label{color:#ccc;font-size:14px}
 </section>
 </main>
 
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 <script>
-const dados={
-obras:JSON.parse(localStorage.getItem('web_obras')||'[]'),
-orc:JSON.parse(localStorage.getItem('web_orc')||'[]'),
-func:JSON.parse(localStorage.getItem('web_func')||'[]'),
-mat:JSON.parse(localStorage.getItem('web_mat')||'[]'),
-ponto:JSON.parse(localStorage.getItem('web_ponto')||'[]')
-};
-
-function entrar(){
-if(document.getElementById('usuario').value==='admin' &&
-document.getElementById('senha').value==='web123'){
-document.getElementById('login').classList.add('hidden');
-document.getElementById('sistema').classList.remove('hidden');
-atualizar();
-}else alert('Usuário ou senha incorretos.');
+const firebaseConfig={apiKey:"AIzaSyBOgR_aFRQyoPAKK28vviNe_FnGf_aeCqE",authDomain:"webconstrutorasistema.firebaseapp.com",projectId:"webconstrutorasistema",storageBucket:"webconstrutorasistema.firebasestorage.app",messagingSenderId:"246732695505",appId:"1:246732695505:web:ce65be1b0d604e26eae2f0",measurementId:"G-09LG1E41VL"};
+const ownerUid="LIsHv3lTi2TUZ77cxPAp2Jr55mH2";
+const app=firebase.initializeApp(firebaseConfig);
+const auth=firebase.auth(),db=firebase.firestore();
+const collections={obras:"obras",orc:"orcamentos",func:"funcionarios",mat:"materiais",ponto:"ponto"};
+const dados={obras:[],orc:[],func:[],mat:[],ponto:[]};
+const subscriptions=[];
+let ready=false;
+function statusLogin(msg){document.getElementById('loginStatus').textContent=msg;}
+async function entrar(){
+ const email=valor('usuario'),senha=document.getElementById('senha').value;
+ if(!email||!senha){statusLogin('Informe e-mail e senha.');return;}
+ try{statusLogin('Conectando...');await auth.signInWithEmailAndPassword(email,senha);}
+ catch(e){statusLogin('Não foi possível entrar. Confira e-mail e senha. ('+e.code+')');}
 }
-
-function sair(){
-document.getElementById('sistema').classList.add('hidden');
-document.getElementById('login').classList.remove('hidden');
+async function sair(){await auth.signOut();}
+auth.onAuthStateChanged(async user=>{
+ subscriptions.splice(0).forEach(stop=>stop());
+ ready=false;
+ document.getElementById('sistema').classList.add('hidden');
+ document.getElementById('login').classList.remove('hidden');
+ if(!user){statusLogin('Acesso restrito ao administrador cadastrado.');return;}
+ if(user.uid!==ownerUid){statusLogin('Conta sem autorização para acessar este sistema.');await auth.signOut();return;}
+ document.getElementById('login').classList.add('hidden');
+ document.getElementById('sistema').classList.remove('hidden');
+ Object.keys(collections).forEach(key=>{
+  const stop=db.collection(collections[key]).onSnapshot(snapshot=>{
+   dados[key]=snapshot.docs.map(doc=>({id:doc.id,...doc.data()}));
+   ready=true;atualizar();
+  },err=>{alert('Falha ao carregar '+key+': '+err.message);});
+  subscriptions.push(stop);
+ });
+});
+async function salvarRegistro(tipo,obj){
+ if(!auth.currentUser||auth.currentUser.uid!==ownerUid)throw Error('Acesso não autorizado');
+ await db.collection(collections[tipo]).add({...obj,criadoEm:firebase.firestore.FieldValue.serverTimestamp()});
 }
 
 function pagina(id){
@@ -185,17 +204,12 @@ function limpar(ids){
 ids.forEach(id=>document.getElementById(id).value='');
 }
 
-function guardar(){
-Object.keys(dados).forEach(k=>{
-localStorage.setItem('web_'+k,JSON.stringify(dados[k]));
-});
-atualizar();
-}
+function guardar(){atualizar();}
 
-function adicionarObra(){
+async function adicionarObra(){
 let nome=valor('obraNome');
 if(!nome){alert('Informe o nome da obra.');return;}
-dados.obras.push({
+await salvarRegistro("obras",{
 nome,
 local:valor('obraLocal'),
 status:valor('obraStatus')
@@ -204,7 +218,7 @@ limpar(['obraNome','obraLocal']);
 guardar();
 }
 
-function adicionarOrcamento(){
+async function adicionarOrcamento(){
 let servico=valor('servico');
 let qtd=Number(valor('quantidade'));
 let unit=Number(valor('valorUnitario'));
@@ -212,7 +226,7 @@ if(!servico||qtd<=0||unit<0||valor('valorUnitario')===''){
 alert('Preencha os dados corretamente.');return;
 }
 let total=qtd*unit;
-dados.orc.push({
+await salvarRegistro("orc",{
 servico,qtd,
 unidade:valor('unidade'),
 unit,total
@@ -223,10 +237,10 @@ limpar(['servico','quantidade','valorUnitario']);
 guardar();
 }
 
-function adicionarFuncionario(){
+async function adicionarFuncionario(){
 let nome=valor('funcNome');
 if(!nome){alert('Informe o nome.');return;}
-dados.func.push({nome,cargo:valor('funcCargo')});
+await salvarRegistro("func",{nome,cargo:valor('funcCargo')});
 limpar(['funcNome','funcCargo']);
 guardar();
 }
@@ -236,7 +250,7 @@ const funcionario=valor('pontoFuncionario');
 if(!funcionario){alert('Selecione um funcionário.');return;}
 const tipo=valor('pontoTipo'),servico=valor('pontoServico'),obra=valor('pontoObra');
 const arquivo=document.getElementById('pontoFoto').files[0];
-if(arquivo && arquivo.size>3000000){alert('Escolha uma foto de até 3 MB.');return;}
+if(arquivo && arquivo.size>450000){alert('Escolha uma foto de até 3 MB.');return;}
 let foto='';
 if(arquivo){foto=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=reject;reader.readAsDataURL(arquivo);});}
 let localizacao=null;
@@ -246,10 +260,9 @@ try{const p=await new Promise((resolve,reject)=>navigator.geolocation.getCurrent
 catch(e){alert('Localização não autorizada ou indisponível. Desmarque a opção para registrar sem localização.');return;}
 }
 const registro={funcionario,nomeFuncionario:dados.func[Number(funcionario)]?.nome||'',tipo,data:new Date().toISOString(),obra,servico,foto,localizacao};
-dados.ponto.push(registro);
-try{guardar();}catch(e){dados.ponto.pop();alert('Armazenamento cheio. Tente uma foto menor ou sem foto.');return;}
+try{await salvarRegistro("ponto",registro);}catch(e){alert("Erro ao salvar registro: "+e.message);return;}
 document.getElementById('pontoFoto').value='';document.getElementById('pontoServico').value='';
-alert('Ponto salvo neste dispositivo. Não sincroniza com outros aparelhos.');
+alert('Ponto salvo no banco de dados.');
 }
 
 function atualizarPonto(){
@@ -272,13 +285,13 @@ area.appendChild(linha);
 });
 }
 
-function adicionarMaterial(){
+async function adicionarMaterial(){
 let nome=valor('matNome');
 let qtd=Number(valor('matQtd'));
 if(!nome||valor('matQtd')===''||qtd<0){
 alert('Preencha os dados corretamente.');return;
 }
-dados.mat.push({nome,qtd,un:valor('matUn')});
+await salvarRegistro("mat",{nome,qtd,un:valor('matUn')});
 limpar(['matNome','matQtd','matUn']);
 guardar();
 }
@@ -305,10 +318,9 @@ area.appendChild(div);
 });
 }
 
-function remover(tipo,i){
+async function remover(tipo,i){
 if(!confirm('Deseja excluir este registro?'))return;
-dados[tipo].splice(i,1);
-guardar();
+try{await db.collection(collections[tipo]).doc(dados[tipo][i].id).delete();}catch(e){alert("Erro ao excluir: "+e.message);}
 }
 
 function atualizar(){
@@ -362,7 +374,6 @@ a.click();
 URL.revokeObjectURL(url);
 }
 
-atualizar();
 if("serviceWorker" in navigator && location.protocol==="https:"){navigator.serviceWorker.register("./sw.js").catch(()=>{});}
 </script>
 </body>
