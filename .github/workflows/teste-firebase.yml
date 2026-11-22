@@ -1,0 +1,30 @@
+
+name: Verificar Firebase - Teste
+
+on:
+  push:
+    branches:
+      - integracao-firebase-revisao
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar arquivos
+        uses: actions/checkout@v4
+
+      - name: Conferir arquivos
+        run: |
+          test -f index.html
+          test -f firestore.rules
+          test -f manifest.webmanifest
+          echo "Arquivos encontrados com sucesso"
+
+      - name: Confirmar ambiente de teste
+        run: |
+          echo "Verificacao concluida"
+          echo "Nenhuma publicacao foi realizada"
